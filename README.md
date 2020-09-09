@@ -2,7 +2,7 @@
 
 [Approov](https://approov.io) is an API security solution used to verify that requests received by your backend services originate from trusted versions of your mobile apps.
 
-This repo implements the Approov server-side request verification code in GoLang(framework agnostic), which performs the verification check before allowing valid traffic to be processed by the API endpoint.
+This repo implements the Approov server-side request verification code in GoLang (framework agnostic), which performs the verification check before allowing valid traffic to be processed by the API endpoint.
 
 
 ## TOC - Table of Contents
@@ -22,14 +22,14 @@ You can learn more about Approov, the motives for adopting it, and more detail o
 * Protects the sensitive data behind your API; it prevents direct API abuse from bots or scripts scraping data and other malicious activity
 * Secures the communication channel between your app and your API with [Approov Dynamic Certificate Pinning](https://approov.io/docs/latest/approov-usage-documentation/#approov-dynamic-pinning). This has all the benefits of traditional pinning but without the drawbacks
 * Removes the need for an API key in the mobile app
-* Improves the network layer DDoS protection provided by Clouflare with an application layer provided by Approov
+* Improves the network layer DDoS protection provided by Cloudflare with an application layer provided by Approov
 
 [TOC](#toc---table-of-contents)
 
 
 ## How it works?
 
-This will be a brief overview of how the Approov cloud service and the GoLang server fit together from a backend perspective. For a complete overview of how the mobile app and backend fit together with the Approov cloud service and the Approov SDK we recommend you to read the [Approov overview](https://approov.io/product) page on our website.
+This is a brief overview of how the Approov cloud service and the GoLang server fit together from a backend perspective. For a complete overview of how the mobile app and backend fit together with the Approov cloud service and the Approov SDK we recommend to read the [Approov overview](https://approov.io/product) page on our website.
 
 ### Approov Cloud Service
 
@@ -46,8 +46,8 @@ The GoLang backend server ensures that the token supplied in the `Approov-Token`
 
 The request is handled such that:
 
-* If the Approov Token is valid, the request is allowed to be processed by the API endpoint.
-* If the Approov Token is invalid, an HTTP 401 Unauthorized response is returned.
+* If the Approov Token is valid, the request is allowed to be processed by the API endpoint
+* If the Approov Token is invalid, an HTTP 401 Unauthorized response is returned
 
 You can choose to log JWT verification failures, but that typically has to go to another provider or you can use the Cloudflare `wrangler tail` command to see the logs from your computer, but that requires a subscription of another Cloudflare service.
 
@@ -85,11 +85,11 @@ git diff --no-index src/approov-protected-server/token-check/hello-server-protec
 
 ## Approov Integration Examples
 
-The code examples for the Approov quickstarts are extracted from this simple [Approov integration examples](/src/approov-protected-server), that you can run from your computer to play around with the Approov integration and gain a better understating how simple and easy is to integrate Approov in a GoLang API server.
+The code examples for the Approov quickstarts are extracted from this simple [Approov integration examples](/src/approov-protected-server), that you can run from your computer to play around with the Approov integration and gain a better understating of how simple and easy it is to integrate Approov in a GoLang API server.
 
 ### Testing with Postman
 
-A ready to use Postman collection can be found [here](https://raw.githubusercontent.com/approov/postman-collections/master/quickstarts/hello-world/hello-world.postman_collection.json). It contains a comprehensive set of example requests to send to the GoLang server for testing. The collection contains requests with valid and invalid Approov Tokens, and with and without token binding.
+A ready-to-use Postman collection can be found [here](https://raw.githubusercontent.com/approov/postman-collections/master/quickstarts/hello-world/hello-world.postman_collection.json). It contains a comprehensive set of example requests to send to the GoLang server for testing. The collection contains requests with valid and invalid Approov tokens, and with and without token binding.
 
 ### Testing with Curl
 
@@ -104,7 +104,7 @@ The valid Approov tokens in the Postman collection and cURL requests examples we
 
 ## Useful Links
 
-If you wish to explore the Approov solution in more depth then why not try one of the following links as a jumping off point:
+If you wish to explore the Approov solution in more depth, then why not try one of the following links as a jumping off point:
 
 * [Approov Free Trial](https://approov.io/signup)(no credit card needed)
 * [Approov QuickStarts](https://approov.io/docs/latest/approov-integration-examples/)
