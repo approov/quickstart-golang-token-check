@@ -85,7 +85,7 @@ git diff --no-index src/approov-protected-server/token-check/hello-server-protec
 
 ## Approov Integration Examples
 
-The code examples for the Approov quickstarts are extracted from this simple [Approov integration examples](/src/approov-protected-server), that you can run from your computer to play around with the Approov integration and gain a better understating of how simple and easy it is to integrate Approov in a GoLang API server.
+The code examples for the Approov quickstarts are extracted from this simple [Approov integration examples](/src/approov-protected-server), that you can run from your computer to play around with the Approov integration and gain a better understanding of how simple and easy it is to integrate Approov in a GoLang API server.
 
 ### Testing with Postman
 
