@@ -22,7 +22,7 @@ You can learn more about Approov, the motives for adopting it, and more detail o
 * Protects the sensitive data behind your API; it prevents direct API abuse from bots or scripts scraping data and other malicious activity
 * Secures the communication channel between your app and your API with [Approov Dynamic Certificate Pinning](https://approov.io/docs/latest/approov-usage-documentation/#approov-dynamic-pinning). This has all the benefits of traditional pinning but without the drawbacks
 * Removes the need for an API key in the mobile app
-* Improves the network layer DDoS protection provided by Cloudflare with an application layer provided by Approov
+* Provides DoS protection against targeted attacks that aim to exhaust the API server resources, effectively preventing real customers from reaching the service or ruining the customer experience.
 
 [TOC](#toc---table-of-contents)
 
@@ -49,7 +49,7 @@ The request is handled such that:
 * If the Approov Token is valid, the request is allowed to be processed by the API endpoint
 * If the Approov Token is invalid, an HTTP 401 Unauthorized response is returned
 
-You can choose to log JWT verification failures, but that typically has to go to another provider or you can use the Cloudflare `wrangler tail` command to see the logs from your computer, but that requires a subscription of another Cloudflare service.
+You can choose to log JWT verification failures, but we left it out on purpose so that you can have the choice of how you prefer to do it and decide the right amount of information you want to log.
 
 [TOC](#toc---table-of-contents)
 
