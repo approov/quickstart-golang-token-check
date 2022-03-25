@@ -37,8 +37,27 @@ In order to run this example you will need to have GoLang installed. If you don'
 
 First, you need to set the dummy secret in the `.env` file as explained [here](/README.md#the-dummy-secret), and afterwards you can run this example from the `src/approov-protected-server/token-binding-check` folder with:
 
-```
+```bash
 go run hello-server-protected.go
 ```
 
-Now you can test that the Approov integration example works as expected with this [Postman collection](/README.md#testing-with-postman) or with some cURL requests [examples](/README.md#testing-with-curl).
+Next, you can test that it works with:
+
+```bash
+curl -iX GET 'http://localhost:8002'
+```
+
+The response will be a `401` unauthorized request:
+
+```text
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+Date: Fri, 25 Mar 2022 13:07:34 GMT
+Content-Length: 3
+
+{}
+```
+
+The reason you got a `401` is because the Approoov token isn't provided in the headers of the request.
+
+Finally, you can test that the Approov integration example works as expected with this [Postman collection](/README.md#testing-with-postman) or with some cURL requests [examples](/README.md#testing-with-curl).

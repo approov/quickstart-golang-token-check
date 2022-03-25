@@ -34,13 +34,13 @@ func verifyApproovToken(request *http.Request, base64Secret string)  (*jwt.Token
     approovToken := request.Header["Approov-Token"]
 
     if approovToken == nil {
-        return nil, fmt.Errorf("Token is missing.")
+        return nil, fmt.Errorf("token is missing in the request headers.")
     }
 
     token, err := jwt.Parse(approovToken[0], func(token *jwt.Token) (interface{}, error) {
 
         if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-            return nil, fmt.Errorf("Signing method mismatch.")
+            return nil, fmt.Errorf("token signing method mismatch.")
         }
 
         secret, err := base64.StdEncoding.DecodeString(base64Secret)
@@ -61,12 +61,16 @@ func makeApproovCheckerHandler(handler func(http.ResponseWriter, *http.Request),
         token, err := verifyApproovToken(request, base64Secret)
 
         if err != nil {
+            // You may want to remove logging, replace or change how its logging
+            log.Println("Approov: " + err.Error())
             errorResponse(response, http.StatusUnauthorized, err.Error())
             return
         }
 
         if ! token.Valid {
-            errorResponse(response, http.StatusUnauthorized, "Token is invalid.")
+            // You may want to remove logging, replace or change how its logging
+            log.Println("Approov: " + err.Error())
+            errorResponse(response, http.StatusUnauthorized, "Approov: token is invalid.")
             return
         }
 

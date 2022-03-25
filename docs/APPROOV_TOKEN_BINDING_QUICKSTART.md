@@ -96,13 +96,13 @@ func verifyApproovToken(request *http.Request, base64Secret string)  (*jwt.Token
     approovToken := request.Header["Approov-Token"]
 
     if approovToken == nil {
-        return nil, fmt.Errorf("Token is missing.")
+        return nil, fmt.Errorf("token is missing in the request headers.")
     }
 
     token, err := jwt.Parse(approovToken[0], func(token *jwt.Token) (interface{}, error) {
 
         if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-            return nil, fmt.Errorf("Signing method mismatch.")
+            return nil, fmt.Errorf("token signing method mismatch.")
         }
 
         secret, err := base64.StdEncoding.DecodeString(base64Secret)
@@ -122,25 +122,29 @@ func verifyApproovTokenBinding(token *jwt.Token, request *http.Request) (jwt.Cla
     token_binding_payload, has_pay_key := claims.(jwt.MapClaims)["pay"]
 
     if ! has_pay_key {
-        // We don't return an error, because the Approov fail-over server doesn't provide the `pay` key.
-        return claims, nil
+        return claims, fmt.Errorf("the `pay` claim is missing in the token payload.")
     }
 
-    // We use the Authorization token here, but feel free to use another header. However, you need to bind this header to the
+    // We use the Authorization token here, but feel free to use another header.
+    // However, no matter the header you choose, you also need to bind it to the
     // Approov token in the mobile app.
     token_binding_header := request.Header["Authorization"]
 
+    // If the request as more then 1 Authorization header you want to return an
+    // error.
+    // NEVER choose one of the headers, otherwise you are opening yourself to
+    // potential attacks.
     if len(token_binding_header) != 1 {
-        return claims, fmt.Errorf("The header to perform the verification for the token binding is missing, empty or has more than one entry.")
+        return claims, fmt.Errorf("the header to perform the verification for the token binding is missing, empty or has more than one entry.")
     }
 
-    // We need to hash and base64 encode the token binding header, because we need to compare it in the same way it was
-    // included in the Approov token on the mobile app.
+    // We need to hash and base64 encode the token binding header to match how
+    // it was done when it was included on the Approov token.
     token_binding_header_hashed := sha256.Sum256([]byte(token_binding_header[0]))
     token_binding_header_encoded := base64.StdEncoding.EncodeToString(token_binding_header_hashed[:])
 
     if token_binding_payload != token_binding_header_encoded {
-        return claims, fmt.Errorf("Invalid token binding.")
+        return claims, fmt.Errorf("invalid token binding.")
     }
 
     return claims, nil
@@ -156,11 +160,15 @@ func makeApproovCheckerHandler(handler func(http.ResponseWriter, *http.Request),
         token, err := verifyApproovToken(request, base64Secret)
 
         if err != nil {
+            // You may want to remove logging, replace or change how its logging
+            //log.Println("Approov: " + err.Error())
             errorResponse(response, http.StatusUnauthorized, err.Error())
             return
         }
 
         if ! token.Valid {
+            // You may want to remove logging, replace or change how its logging
+            //log.Println("Approov: " + err.Error())
             errorResponse(response, http.StatusUnauthorized, "Token is invalid.")
             return
         }
@@ -168,6 +176,8 @@ func makeApproovCheckerHandler(handler func(http.ResponseWriter, *http.Request),
         claims, err := verifyApproovTokenBinding(token, request)
 
         if err != nil {
+            // You may want to remove logging, replace or change how its logging
+            //log.Println("Approov: " + err.Error())
             errorResponse(response, http.StatusUnauthorized, err.Error())
             return
         }
