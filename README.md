@@ -5,101 +5,122 @@
 This repo implements the Approov server-side request verification code in GoLang (framework agnostic), which performs the verification check before allowing valid traffic to be processed by the API endpoint.
 
 
-## TOC - Table of Contents
+## Approov Integration Quickstart
 
-* [Why?](#why)
-* [How it Works?](#how-it-works)
-* [Quickstarts](#approov-integration-quickstarts)
-* [Examples](#approov-integration-examples)
-* [Useful Links](#useful-links)
+The quickstart was tested with the following Operating Systems:
 
+* Ubuntu 20.04
+* MacOS Big Sur
+* Windows 10 WSL2 - Ubuntu 20.04
 
-## Why?
+First, setup the [Appoov CLI](https://approov.io/docs/latest/approov-installation/index.html#initializing-the-approov-cli).
 
-You can learn more about Approov, the motives for adopting it, and more detail on how it works by following this [link](https://approov.io/product). In brief, Approov:
+Now, register the API domain for which Approov will issues tokens:
 
-* Ensures that accesses to your API come from official versions of your apps; it blocks accesses from republished, modified, or tampered versions
-* Protects the sensitive data behind your API; it prevents direct API abuse from bots or scripts scraping data and other malicious activity
-* Secures the communication channel between your app and your API with [Approov Dynamic Certificate Pinning](https://approov.io/docs/latest/approov-usage-documentation/#approov-dynamic-pinning). This has all the benefits of traditional pinning but without the drawbacks
-* Removes the need for an API key in the mobile app
-* Provides DoS protection against targeted attacks that aim to exhaust the API server resources, effectively preventing real customers from reaching the service or ruining the customer experience.
-
-[TOC](#toc---table-of-contents)
-
-
-## How it works?
-
-This is a brief overview of how the Approov cloud service and the GoLang server fit together from a backend perspective. For a complete overview of how the mobile app and backend fit together with the Approov cloud service and the Approov SDK we recommend to read the [Approov overview](https://approov.io/product) page on our website.
-
-### Approov Cloud Service
-
-The Approov cloud service attests that a device is running a legitimate and tamper-free version of your mobile app.
-
-* If the integrity check passes then a valid token is returned to the mobile app
-* If the integrity check fails then a legitimate looking token will be returned
-
-In either case, the app, unaware of the token's validity, adds it to every request it makes to the Approov protected API(s).
-
-### GoLang Backend Server
-
-The GoLang backend server ensures that the token supplied in the `Approov-Token` header is present and valid. The validation is done by using a shared secret known only to the Approov cloud service and the GoLang backend server.
-
-The request is handled such that:
-
-* If the Approov Token is valid, the request is allowed to be processed by the API endpoint
-* If the Approov Token is invalid, an HTTP 401 Unauthorized response is returned
-
-You can choose to log JWT verification failures, but we left it out on purpose so that you can have the choice of how you prefer to do it and decide the right amount of information you want to log.
-
-[TOC](#toc---table-of-contents)
-
-
-## Approov Integration Quickstarts
-
-The quickstart code for the Approov GoLang server is split into two implementations. The first gets you up and running with basic token checking. The second uses a more advanced Approov feature, _token binding_. Token binding may be used to link the Approov token with other properties of the request, such as user authentication (more details can be found [here](https://approov.io/docs/latest/approov-usage-documentation/#token-binding)).
-* [Approov token check quickstart](/docs/APPROOV_TOKEN_QUICKSTART.md)
-* [Approov token check with token binding quickstart](/docs/APPROOV_TOKEN_BINDING_QUICKSTART.md)
-
-Both the quickstarts are built from the unprotected example server defined [here](/src/unprotected-server/hello-server-unprotected.go), thus you can use Git to see the code differences between them.
-
-Code difference between the Approov token check quickstart and the original unprotected server:
-
-```
-git diff --no-index src/unprotected-server/hello-server-unprotected.go src/approov-protected-server/token-check/hello-server-protected.go
+```bash
+approov api -add api.example.com
 ```
 
-You can do the same for the Approov token binding quickstart:
+Next, enable your Approov `admin` role with:
 
+```bash
+eval `approov role admin`
+````
+
+Now, get your Approov Secret with the [Appoov CLI](https://approov.io/docs/latest/approov-installation/index.html#initializing-the-approov-cli):
+
+```bash
+approov secret -get base64
 ```
-git diff --no-index src/unprotected-server/hello-server-unprotected.go src/approov-protected-server/token-binding-check/hello-server-protected.go
+
+Next, add the [Approov secret](https://approov.io/docs/latest/approov-usage-documentation/#account-secret-key-export) to your project `.env` file:
+
+```env
+APPROOV_BASE64_SECRET=approov_base64_secret_here
 ```
 
-Or you can compare the code difference between the two quickstarts:
+Now, add to your dependencies the [golang-jwt/jwt](github.com/dgrijalva/jwt-gohttps://github.com/golang-jwt/jwt) package:
 
+```bash
+go get github.com/golang-jwt/jwt/v4
+go mod tidy
 ```
-git diff --no-index src/approov-protected-server/token-check/hello-server-protected.go src/approov-protected-server/token-binding-check/hello-server-protected.go
+
+Next, import the dependency:
+
+```go
+import (
+    jwt "github.com/golang-jwt/jwt/v4"
+)
 ```
 
-[TOC](#toc---table-of-contents)
+Now, add the `verifyApproovToken` function:
 
+```go
+func verifyApproovToken(request *http.Request, base64Secret string)  (*jwt.Token, error) {
+    approovToken := request.Header["Approov-Token"]
 
-## Approov Integration Examples
+    if approovToken == nil {
+        return nil, fmt.Errorf("token is missing in the request headers.")
+    }
 
-The code examples for the Approov quickstarts are extracted from this simple [Approov integration examples](/src/approov-protected-server), that you can run from your computer to play around with the Approov integration and gain a better understanding of how simple and easy it is to integrate Approov in a GoLang API server.
+    token, err := jwt.Parse(approovToken[0], func(token *jwt.Token) (interface{}, error) {
 
-### Testing with Postman
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, fmt.Errorf("token signing method mismatch.")
+        }
 
-A ready-to-use Postman collection can be found [here](https://raw.githubusercontent.com/approov/postman-collections/master/quickstarts/hello-world/hello-world.postman_collection.json). It contains a comprehensive set of example requests to send to the GoLang server for testing. The collection contains requests with valid and invalid Approov tokens, and with and without token binding.
+        secret, err := base64.StdEncoding.DecodeString(base64Secret)
 
-### Testing with Curl
+        if err != nil {
+            return nil, fmt.Errorf(err.Error())
+        }
 
-An alternative to the Postman collection is to use cURL to make the API requests. Check some examples [here](https://github.com/approov/postman-collections/blob/master/quickstarts/hello-world/hello-world.postman_curl_requests_examples.md).
+        return secret, nil
+    })
 
-### The Dummy Secret
+    return token, err
+}
+```
 
-The valid Approov tokens in the Postman collection and cURL requests examples were signed with a dummy secret that was generated with `openssl rand -base64 64 | tr -d '\n'; echo`, therefore not a production secret retrieved with `approov secret -get base64`, thus in order to use it you need to set the `APPROOV_BASE64_SECRET`, in the `.env` file for each [Approov integration example](/src/approov-protected-server), to the following value: `h+CX0tOzdAAR9l15bWAqvq7w9olk66daIH+Xk+IAHhVVHszjDzeGobzNnqyRze3lw/WVyWrc2gZfh3XXfBOmww==`.
+Next, create an Approov token check handler:
 
-[TOC](#toc---table-of-contents)
+```go
+func makeApproovCheckerHandler(handler func(http.ResponseWriter, *http.Request), base64Secret string) http.Handler {
+    return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+
+        token, err := verifyApproovToken(request, base64Secret)
+
+        if err != nil {
+            // You may want to remove logging, replace or change how its logging
+            //log.Println("Approov: " + err.Error())
+            errorResponse(response, http.StatusUnauthorized, err.Error())
+            return
+        }
+
+        if ! token.Valid {
+            // You may want to remove logging, replace or change how its logging
+            //log.Println("Approov: " + err.Error())
+            errorResponse(response, http.StatusUnauthorized, "Approov: token is invalid.")
+            return
+        }
+
+        handler(response, request)
+    })
+}
+```
+
+Now you just need to invoke it for each API endpoint you want to protect:
+
+```go
+http.Handle("/", makeApproovCheckerHandler(endpointHandler, base64Secret))
+```
+
+Not enough details in the bare bones quickstart? No worries, check the [detailed quickstarts](QUICKSTARTS.md) that contain a more comprehensive set of instructions, including how to test the Approov integration.
+
+## Issues
+
+If you find any issue while following our instructions then just report it [here](https://github.com/approov/quickstart-golang-token-check/issues), with the steps to reproduce it, and we will sort it out and/or guide you to the correct path.
 
 
 ## Useful Links

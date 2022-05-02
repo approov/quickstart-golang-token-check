@@ -48,7 +48,7 @@ Approov needs to know the domain name of the API for which it will issue tokens.
 
 Add it with:
 
-```text
+```bash
 approov api -add your.api.domain.com
 ```
 
@@ -60,25 +60,29 @@ Adding the API domain also configures the [dynamic certificate pinning](https://
 
 Approov tokens are signed with a symmetric secret. To verify tokens, we need to grab the secret using the [Approov secret command](https://approov.io/docs/latest/approov-cli-tool-reference/#secret-command) and plug it into the GoLang API server environment to check the signatures of the [Approov Tokens](https://www.approov.io/docs/latest/approov-usage-documentation/#approov-tokens) that it processes.
 
-Retrieve the Approov secret with:
+First, enable your Approov `admin` role with:
 
-```text
+```bash
+eval `approov role admin`
+````
+
+Next, retrieve the Approov secret with:
+
+```bash
 approov secret -get base64
 ```
-
-> **NOTE:** The `approov secret` command requires an [administration role](https://approov.io/docs/latest/approov-usage-documentation/#account-access-roles) to execute successfully.
 
 #### Set the Approov Secret
 
 If you are using a `.env` file then add the secret to the var:
 
-```text
+```bash
 APPROOV_BASE64_SECRET=approov_base64_secret_here
 ```
 
 Otherwise, set it directly into your environment:
 
-```text
+```bash
 export APPROOV_BASE64_SECRET=approov_base64_secret_here
 ```
 
@@ -87,7 +91,7 @@ export APPROOV_BASE64_SECRET=approov_base64_secret_here
 
 ## Approov Token Check
 
-To check the Approov token we will use the `github.com/dgrijalva/jwt-go` package, but you are free to use another one of your preference.
+To check the Approov token we will use the `https://github.com/golang-jwt/jwt` package, but you are free to use another one of your preference.
 
 Add this function to your code:
 
@@ -164,13 +168,13 @@ The following examples below use cURL, but you can also use the [Postman Collect
 
 Generate a valid token example from the Approov Cloud service:
 
-```text
+```bash
 approov token -genExample your.api.domain.com
 ```
 
 Then make the request with the generated token:
 
-```text
+```bash
 curl -i --request GET 'https://your.api.domain.com' \
   --header 'Approov-Token: APPROOV_TOKEN_EXAMPLE_HERE'
 ```
@@ -189,13 +193,13 @@ HTTP/2 200
 
 Generate an invalid token example from the Approov Cloud service:
 
-```text
+```bash
 approov token -type invalid -genExample your.api.domain.com
 ```
 
 Then make the request with the generated token:
 
-```text
+```bash
 curl -i --request GET 'https://your.api.domain.com' \
   --header 'Approov-Token: APPROOV_INVALID_TOKEN_EXAMPLE_HERE'
 ```
@@ -209,3 +213,30 @@ HTTP/2 401
 
 {}
 ```
+
+[TOC](#toc---table-of-contents)
+
+
+## Issues
+
+If you find any issue while following our instructions then just report it [here](https://github.com/approov/quickstart-golang-token-check/issues), with the steps to reproduce it, and we will sort it out and/or guide you to the correct path.
+
+[TOC](#toc---table-of-contents)
+
+
+## Useful Links
+
+If you wish to explore the Approov solution in more depth, then why not try one of the following links as a jumping off point:
+
+* [Approov Free Trial](https://approov.io/signup)(no credit card needed)
+* [Approov Get Started](https://approov.io/product/demo)
+* [Approov QuickStarts](https://approov.io/docs/latest/approov-integration-examples/)
+* [Approov Docs](https://approov.io/docs)
+* [Approov Blog](https://approov.io/blog/)
+* [Approov Resources](https://approov.io/resource/)
+* [Approov Customer Stories](https://approov.io/customer)
+* [Approov Support](https://approov.zendesk.com/hc/en-gb/requests/new)
+* [About Us](https://approov.io/company)
+* [Contact Us](https://approov.io/contact)
+
+[TOC](#toc---table-of-contents)
