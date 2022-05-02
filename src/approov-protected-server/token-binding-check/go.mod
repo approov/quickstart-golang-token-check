@@ -1,8 +1,8 @@
-module github.com/approov/documentation_backend-code-snippets/backend-integration-impact
+module github.com/approov/quickstart-golang-token-check/approov-protected-server/token-binding-check
 
-go 1.12
+go 1.18
 
 require (
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
-	github.com/joho/godotenv v1.3.0 // indirect
+	github.com/golang-jwt/jwt/v4 v4.4.1
+	github.com/joho/godotenv v1.3.0
 )

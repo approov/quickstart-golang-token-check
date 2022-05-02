@@ -7,7 +7,7 @@ import (
     "encoding/base64"
     "log"
     "net/http"
-    jwt "github.com/dgrijalva/jwt-go"
+    jwt "github.com/golang-jwt/jwt/v4"
     dotenv "github.com/joho/godotenv"
 
 )
