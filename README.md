@@ -150,6 +150,3 @@ If you wish to explore the Approov solution in more depth, then why not try one 
 * [Approov Support](https://approov.zendesk.com/hc/en-gb/requests/new)
 * [About Us](https://approov.io/company)
 * [Contact Us](https://approov.io/contact)
-
-
-[TOC](#toc---table-of-contents)
