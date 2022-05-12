@@ -142,9 +142,9 @@ If you wish to explore the Approov solution in more depth, then why not try one 
 
 * [Approov Free Trial](https://approov.io/signup)(no credit card needed)
 * [Approov QuickStarts](https://approov.io/docs/latest/approov-integration-examples/)
-* [Approov Live Demo](https://approov.io/product/demo)
+* [Approov Get Started](https://approov.io/product/demo)
 * [Approov Docs](https://approov.io/docs)
-* [Approov Blog](https://blog.approov.io)
+* [Approov Blog](https://approov.io/blog/)
 * [Approov Resources](https://approov.io/resource/)
 * [Approov Customer Stories](https://approov.io/customer)
 * [Approov Support](https://approov.zendesk.com/hc/en-gb/requests/new)
