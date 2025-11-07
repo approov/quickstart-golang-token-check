@@ -1,12 +1,15 @@
 services:
-  approov-token-check:
+  approov-server:
     image: approov/golang:1.18
     build: ./
+    env_file:
+      - ./.env
     networks:
       - default
-    command: bash -c "go run server.go"
+    command: go run server.go
     ports:
       - ${HOST_IP:-127.0.0.1}:${HTTP_PORT:-8002}:${HTTP_PORT:-8002}
     volumes:
       - ./:/home/developer/workspace
+    working_dir: /home/developer/workspace
 
