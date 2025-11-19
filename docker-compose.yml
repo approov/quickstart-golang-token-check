@@ -8,7 +8,7 @@ services:
       - default
     command: go run server.go
     ports:
-      - ${HOST_IP:-127.0.0.1}:${HTTP_PORT:-8002}:${HTTP_PORT:-8002}
+      - ${HOST_IP:-127.0.0.1}:${HTTP_PORT:-8111}:${HTTP_PORT:-8111}
     volumes:
       - ./:/home/developer/workspace
     working_dir: /home/developer/workspace

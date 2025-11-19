@@ -5,7 +5,7 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "Missing command: $1"; ex
 need_cmd approov
 need_cmd curl
 
-BASE_URL="${BASE_URL:-http://localhost:8002}"
+BASE_URL="${BASE_URL:-http://localhost:8111}"
 CONFIGDIR="${CONFIGDIR:-./config}"
 TOKDIR="$CONFIGDIR/tokens"
 LOGDIR="$CONFIGDIR/logs"
@@ -104,14 +104,14 @@ else
   expected_status=200
   run_test "Token check (valid)" "$expected_status" \
     -H "$HDR_NAME: $(cat "$TOKDIR/approov_token_1_valid")" \
-    "$BASE_URL/token-check"
+    "$BASE_URL/token"
 
   # 1.2 Invalid Token
   gen_token "$TOKDIR/approov_token_1_invalid" -genExample example.com -type invalid || true
   if [ "$approov_disabled" = true ]; then expected_status=200; else expected_status=401; fi
   run_test "Token check (invalid)" "$expected_status" \
     -H "$HDR_NAME: $(cat "$TOKDIR/approov_token_1_invalid")" \
-    "$BASE_URL/token-check"
+    "$BASE_URL/token"
 fi
 
 # 2) Token Binding ["Authorization"]

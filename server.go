@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"sync"
+
+	"quickstart-golang-token-check/files"
 
 	jwt "github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
@@ -45,7 +50,7 @@ func loadConfig() {
 		config.Host = "localhost"
 	}
 	if config.Port == "" {
-		config.Port = "8002"
+		config.Port = "8111"
 	}
 
 	if config.Base64Secret == "" {
@@ -73,12 +78,22 @@ func approovProtected(handler http.HandlerFunc, boundHeaders []string) http.Hand
 		mu.RLock()
 		enabled := config.Enabled
 		secret := config.Base64Secret
-		headerName := http.CanonicalHeaderKey(config.TokenHeader)
+		headerName := config.TokenHeader // keep the raw name here
 		mu.RUnlock()
 
 		if !enabled {
 			log.Println("[approov] protection disabled")
 			handler(w, r)
+			return
+		}
+
+		// Create a per-request verifier (or cache these per path if you like)
+		verifier := files.NewVerifier(secret, headerName, boundHeaders)
+
+		if err := verifier.Verify(r); err != nil {
+			jsonResponse(w, http.StatusUnauthorized, map[string]string{
+				"error": "[approov] " + err.Error(),
+			})
 			return
 		}
 
@@ -184,15 +199,98 @@ func approovDisableHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"message": "Approov protection disabled"})
 }
 
+// ipkMessageSignHandler signs the canonical message with the EC private key,
+// returning a base64-encoded raw ECDSA (r||s) signature – similar to the Lua
+// /ipk_message_sign_test endpoint.
+func ipkMessageSignHandler(w http.ResponseWriter, r *http.Request) {
+	pkB64 := r.Header.Get("private-key")
+	msgB64 := r.Header.Get("msg")
+
+	if pkB64 == "" || msgB64 == "" {
+		http.Error(w, "Failed: missing private-key or msg header", http.StatusBadRequest)
+		return
+	}
+
+	// Decode private key (b64 DER, EC P-256)
+	pkDER, err := base64.StdEncoding.DecodeString(pkB64)
+	if err != nil {
+		http.Error(w, "Failed: bad private-key base64", http.StatusBadRequest)
+		return
+	}
+
+	priv, err := x509.ParseECPrivateKey(pkDER)
+	if err != nil {
+		http.Error(w, "Failed: could not parse EC private key", http.StatusBadRequest)
+		return
+	}
+
+	// Decode message (base64 of canonical string)
+	msg, err := base64.StdEncoding.DecodeString(msgB64)
+	if err != nil {
+		http.Error(w, "Failed: bad msg base64", http.StatusBadRequest)
+		return
+	}
+
+	// Hash and sign with ECDSA P-256 + SHA-256
+	h := sha256.Sum256(msg)
+	rInt, sInt, err := ecdsa.Sign(rand.Reader, priv, h[:])
+	if err != nil {
+		http.Error(w, "Failed: could not sign message", http.StatusInternalServerError)
+		return
+	}
+
+	// Encode as raw r||s (same format your verifier expects)
+	rb := rInt.Bytes()
+	sb := sInt.Bytes()
+	// simple concat; verifier will split in half – for production you'd
+	// normally left-pad to fixed size, but keeping tests consistent is enough.
+	// sigRaw := append(rb, sb...)
+
+	if len(rb) > 32 || len(sb) > 32 {
+		http.Error(w, "Failed: ECDSA coordinates too large", http.StatusInternalServerError)
+		return
+	}
+
+	raw := make([]byte, 64)
+	// pad r on the left
+	copy(raw[32-len(rb):32], rb)
+	// pad s on the left
+	copy(raw[64-len(sb):64], sb)
+
+	sigB64 := base64.StdEncoding.EncodeToString(raw)
+
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprint(w, sigB64)
+}
+
 // ========== 5. Startup ==========
 
 func main() {
 	loadConfig()
 
+	verifier := files.NewVerifier(config.Base64Secret, config.TokenHeader, nil)
+
 	http.HandleFunc("/unprotected", unprotectedHandler)
+
+	http.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		// Runs:
+		// 1) JWT verification
+		// 2) Optional token binding (if you pass BindingHeaders in NewVerifier)
+		// 3) Message-sign check if the JWT has an "ipk" claim
+		if err := verifier.Verify(r); err != nil {
+			jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+			return
+		}
+
+		// If we get here, everything verified OK
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Good Token"))
+	})
 	http.HandleFunc("/token-check", approovProtected(tokenCheckHandler, nil))
 	http.HandleFunc("/token-binding-1", approovProtected(tokenBinding1Handler, []string{"Authorization"}))
 	http.HandleFunc("/token-binding-2", approovProtected(tokenBinding2Handler, []string{"Authorization", "Content-Digest"}))
+	http.HandleFunc("/ipk_message_sign_test", ipkMessageSignHandler)
 	http.HandleFunc("/approov-state", approovStateHandler)
 	http.HandleFunc("/approov/enable", approovEnableHandler)
 	http.HandleFunc("/approov/disable", approovDisableHandler)
