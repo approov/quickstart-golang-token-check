@@ -11,12 +11,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"quickstart-golang-token-check/files"
 
 	jwt "github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
+
+	"github.com/ucarion/sfv"
 )
 
 // ========== 1. Configuration ==========
@@ -263,6 +266,174 @@ func ipkMessageSignHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, sigB64)
 }
 
+func SFVTestHandler(w http.ResponseWriter, r *http.Request) {
+	sfvHeader := r.Header.Get("sfv")
+	sfvType := r.Header.Get("sfvt") // ITEM, LIST, or DICTIONARY
+
+	normalized, err := normalizeSFVInput(sfvHeader)
+	if err != nil {
+		http.Error(w, "SFV parse error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var (
+		parsed any
+	)
+
+	switch sfvType {
+	case "ITEM":
+		trimmed := strings.TrimSpace(normalized)
+		if strings.HasPrefix(trimmed, "(") {
+			var list sfv.List
+			err = sfv.Unmarshal(normalized, &list)
+			if err == nil {
+				if len(list) != 1 {
+					err = fmt.Errorf("expected single inner list, got %d members", len(list))
+				} else if list[0].IsItem {
+					err = fmt.Errorf("expected inner list value")
+				} else {
+					parsed = list[0].InnerList
+				}
+			}
+		} else {
+			var item sfv.Item
+			err = sfv.Unmarshal(normalized, &item)
+			parsed = item
+		}
+
+	case "LIST":
+		var list sfv.List
+		err = sfv.Unmarshal(normalized, &list)
+		parsed = list
+
+	case "DICTIONARY":
+		var dict sfv.Dictionary
+		err = sfv.Unmarshal(normalized, &dict)
+		parsed = dict
+
+	default:
+		http.Error(w, "Invalid sfvt header (must be ITEM, LIST, or DICTIONARY)", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, "SFV parse error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(parsed)
+}
+
+func normalizeSFVInput(raw string) (string, error) {
+	if raw == "" {
+		return raw, nil
+	}
+
+	var b strings.Builder
+	b.Grow(len(raw))
+
+	inString := false
+	escapeNext := false
+	inBinary := false
+
+	for i := 0; i < len(raw); {
+		if !inString && !inBinary && raw[i] == '%' && i+1 < len(raw) && raw[i+1] == '"' {
+			decoded, end, err := decodeDisplayString(raw, i+2)
+			if err != nil {
+				return "", err
+			}
+			b.WriteByte('"')
+			b.WriteString(escapeSFVString(decoded))
+			b.WriteByte('"')
+			i = end + 1 // skip closing quote
+			continue
+		}
+
+		if !inString && !inBinary && raw[i] == '@' {
+			start := i + 1
+			sign := ""
+			if start < len(raw) && raw[start] == '-' {
+				sign = "-"
+				start++
+			}
+			j := start
+			for j < len(raw) && raw[j] >= '0' && raw[j] <= '9' {
+				j++
+			}
+			if j > start {
+				b.WriteString(sign)
+				b.WriteString(raw[start:j])
+				i = j
+				continue
+			}
+		}
+
+		ch := raw[i]
+		b.WriteByte(ch)
+
+		if inString {
+			if escapeNext {
+				escapeNext = false
+			} else if ch == '\\' {
+				escapeNext = true
+			} else if ch == '"' {
+				inString = false
+			}
+		} else if inBinary {
+			if ch == ':' {
+				inBinary = false
+			}
+		} else {
+			if ch == '"' {
+				inString = true
+				escapeNext = false
+			} else if ch == ':' {
+				inBinary = true
+			}
+		}
+		i++
+	}
+
+	return b.String(), nil
+}
+
+func decodeDisplayString(raw string, start int) (string, int, error) {
+	var b strings.Builder
+
+	for i := start; i < len(raw); i++ {
+		ch := raw[i]
+		if ch == '"' {
+			return b.String(), i, nil
+		}
+		if ch == '\\' {
+			i++
+			if i >= len(raw) {
+				return "", 0, fmt.Errorf("unterminated escape in display string")
+			}
+			b.WriteByte(raw[i])
+			continue
+		}
+		b.WriteByte(ch)
+	}
+
+	return "", 0, fmt.Errorf("unterminated display string")
+}
+
+func escapeSFVString(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\', '"':
+			b.WriteByte('\\')
+			b.WriteByte(s[i])
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
 // ========== 5. Startup ==========
 
 func main() {
@@ -281,7 +452,6 @@ func main() {
 			jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 			return
 		}
-
 		// If we get here, everything verified OK
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
@@ -290,6 +460,7 @@ func main() {
 	http.HandleFunc("/token-check", approovProtected(tokenCheckHandler, nil))
 	http.HandleFunc("/token-binding-1", approovProtected(tokenBinding1Handler, []string{"Authorization"}))
 	http.HandleFunc("/token-binding-2", approovProtected(tokenBinding2Handler, []string{"Authorization", "Content-Digest"}))
+	http.HandleFunc("/sfv_test", SFVTestHandler)
 	http.HandleFunc("/ipk_message_sign_test", ipkMessageSignHandler)
 	http.HandleFunc("/approov-state", approovStateHandler)
 	http.HandleFunc("/approov/enable", approovEnableHandler)

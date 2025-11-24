@@ -1,4 +1,3 @@
-// files/messagesign.go
 package files
 
 import (
@@ -6,88 +5,181 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net/http"
 	"strings"
 )
 
-// SigParams is what we need from Signature-Input:
-// - which components are covered (e.g. "@method", "@target-uri", "approov-token")
-// - the canonical inner-list string used for "@signature-params"
+// SigParams holds the parsed Signature-Input parameters for sig1.
 type SigParams struct {
-	Components []string // ["@method", "@target-uri", "approov-token", "content-digest", ...]
-	InnerRaw   string   // e.g. ("@method" "@target-uri" "approov-token");alg="ecdsa-p256-sha256";...
+	Components []string // e.g. ["@method", "@target-uri", "approov-token", "content-digest"]
+	InnerRaw   string   // e.g. ("@method" "approov-token");alg="ecdsa-p256-sha256";created=...
 }
 
-// VerifyMessageSignature verifies the HTTP message signature using the ipk (b64 DER).
-// This is the Go equivalent of Lua: messagesign.checkMessageSignature(public_key_b64, ...).
-func VerifyMessageSignature(r *http.Request, ipkB64 string) error {
-	// 1) Decode ipk (b64 DER) and parse as ECDSA public key (P-256)
-	pubKey, err := parseIPK(ipkB64)
-	if err != nil {
-		return fmt.Errorf("parse ipk: %w", err)
+// parseSignatureInputHeader parses a header like:
+//
+//	Signature-Input: sig1=("@method" "approov-token");alg="ecdsa-p256-sha256";created=...;expires=...
+func parseSignatureInputHeader(h string) (*SigParams, error) {
+	if h == "" {
+		return nil, fmt.Errorf("missing Signature-Input header")
 	}
 
-	sigInput := r.Header.Get("Signature-Input")
-	sigHeader := r.Header.Get("Signature")
-	if sigInput == "" || sigHeader == "" {
-		return fmt.Errorf("missing Signature or Signature-Input headers")
+	// We assume a single entry: sig1=...
+	eq := strings.Index(h, "=")
+	if eq <= 0 {
+		return nil, fmt.Errorf("invalid Signature-Input (no '='): %q", h)
 	}
 
-	label := "install"
-
-	sp, err := parseSignatureInput(sigInput, label)
-	if err != nil {
-		return fmt.Errorf("parse Signature-Input: %w", err)
+	value := strings.TrimSpace(h[eq+1:])
+	if value == "" {
+		return nil, fmt.Errorf("empty Signature-Input value")
 	}
 
-	sigRaw, err := parseSignatureHeader(sigHeader, label)
-	if err != nil {
-		return fmt.Errorf("parse Signature header: %w", err)
+	if !strings.HasPrefix(value, "(") {
+		return nil, fmt.Errorf("invalid Signature-Input (no '('): %q", h)
 	}
 
-	canonical, err := buildCanonicalMessage(r, sp)
-	if err != nil {
-		return fmt.Errorf("build canonical message: %w", err)
+	closeIdx := strings.Index(value, ")")
+	if closeIdx < 0 {
+		return nil, fmt.Errorf("invalid Signature-Input (no ')'): %q", h)
 	}
 
-	h := sha256.Sum256(canonical)
-	fmt.Println("CANONICAL MESSAGE:\n" + string(canonical))
-	fmt.Println("SHA256(b64) =", base64.StdEncoding.EncodeToString(h[:]))
+	innerList := value[1:closeIdx] // everything between '(' and ')'
 
-	if !verifyECDSARaw(pubKey, canonical, sigRaw) {
-		return fmt.Errorf("ECDSA signature verification failed")
+	// innerList looks like: "@method" "@target-uri" "approov-token" "content-digest"
+	var comps []string
+	for _, part := range strings.Split(innerList, "\" \"") {
+		part = strings.Trim(part, `" `)
+		if part == "" {
+			continue
+		}
+		comps = append(comps, part)
 	}
 
-	return nil
+	if len(comps) == 0 {
+		return nil, fmt.Errorf("no components found in Signature-Input: %q", h)
+	}
+
+	return &SigParams{
+		Components: comps,
+		InnerRaw:   value, // keep the raw `("...")...` part for @signature-params
+	}, nil
 }
 
-// parseIPK decodes a base64 DER PKIX public key into *ecdsa.PublicKey.
-// Inspired by loadPublicKey in the http-signatures repo, but works with DER instead of PEM.
-func parseIPK(ipkB64 string) (*ecdsa.PublicKey, error) {
+func buildCanonicalMessage(r *http.Request, sp *SigParams) ([]byte, error) {
+	var lines []string
+
+	for _, comp := range sp.Components {
+		switch comp {
+		case "@method":
+			lines = append(lines, fmt.Sprintf("\"@method\": %s", strings.ToUpper(r.Method)))
+		case "@target-uri":
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			target := fmt.Sprintf("%s://%s%s", scheme, r.Host, r.URL.RequestURI())
+			lines = append(lines, fmt.Sprintf("\"@target-uri\": %s", target))
+		case "approov-token":
+			token := r.Header.Get("Approov-Token")
+			if token == "" {
+				token = r.Header.Get("approov-token")
+			}
+			if token == "" {
+				return nil, fmt.Errorf("missing Approov-Token header")
+			}
+			lines = append(lines, fmt.Sprintf("\"approov-token\": %s", token))
+		case "content-digest":
+			cd := r.Header.Get("Content-Digest")
+			if cd == "" {
+				cd = r.Header.Get("content-digest")
+			}
+			if cd == "" {
+				return nil, fmt.Errorf("missing Content-Digest header")
+			}
+			lines = append(lines, fmt.Sprintf("\"content-digest\": %s", cd))
+		default:
+			return nil, fmt.Errorf("unsupported signature component %q", comp)
+		}
+	}
+
+	lines = append(lines, fmt.Sprintf("\"@signature-params\": %s", sp.InnerRaw))
+	canonical := strings.Join(lines, "\n")
+
+	h := sha256.Sum256([]byte(canonical))
+	log.Printf("CANONICAL MESSAGE:\n%s", canonical)
+	log.Printf("SHA256(b64) = %s", base64.StdEncoding.EncodeToString(h[:]))
+
+	return []byte(canonical), nil
+}
+
+// extractSignatureBytes parses a header like:
+//
+//	Signature: sig1=:BASE64SIG:
+//
+// and returns the decoded bytes.
+func extractSignatureBytes(h string) ([]byte, error) {
+	if h == "" {
+		return nil, fmt.Errorf("missing Signature header")
+	}
+
+	// find the first "=:"
+	start := strings.Index(h, "=:")
+	if start < 0 {
+		return nil, fmt.Errorf("Signature header not in expected format: %q", h)
+	}
+	start += len("=:")
+
+	end := strings.Index(h[start:], ":")
+	if end < 0 {
+		return nil, fmt.Errorf("Signature header missing closing ':'")
+	}
+
+	b64 := strings.TrimSpace(h[start : start+end])
+	if b64 == "" {
+		return nil, fmt.Errorf("empty signature value in Signature header")
+	}
+
+	sig, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode signature: %w", err)
+	}
+
+	return sig, nil
+}
+
+// parsePublicKeyFromIPK decodes the ipk claim (base64 DER EC P-256 public key).
+func parsePublicKeyFromIPK(ipkB64 string) (*ecdsa.PublicKey, error) {
+	if ipkB64 == "" {
+		return nil, errors.New("empty ipk")
+	}
+
 	der, err := base64.StdEncoding.DecodeString(ipkB64)
 	if err != nil {
-		return nil, fmt.Errorf("decode ipk base64: %w", err)
+		return nil, fmt.Errorf("base64 decode ipk: %w", err)
 	}
 
 	pub, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
-		return nil, fmt.Errorf("ParsePKIXPublicKey: %w", err)
+		return nil, fmt.Errorf("parse ipk DER: %w", err)
 	}
 
-	ec, ok := pub.(*ecdsa.PublicKey)
+	ecdsaPub, ok := pub.(*ecdsa.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("ipk is not ECDSA")
+		return nil, errors.New("ipk is not an ECDSA P-256 public key")
 	}
-	return ec, nil
+
+	return ecdsaPub, nil
 }
 
-// verifyECDSARaw verifies a raw r||s ECDSA signature over the sha256 of msg.
-// Based on the ECDSA logic from the previous repo, but without ASN.1.
-func verifyECDSARaw(pub *ecdsa.PublicKey, msg []byte, sig []byte) bool {
+// verifyECDSARaw matches the Lua `ecdsa_use_raw = true` signing:
+// sig is 64 bytes: r||s (each 32 bytes), SHA-256 over the message.
+func verifyECDSARaw(pub *ecdsa.PublicKey, msg []byte, sig []byte) error {
 	if len(sig) != 64 {
-		return false
+		return fmt.Errorf("unexpected ECDSA signature length %d (want 64)", len(sig))
 	}
 
 	h := sha256.Sum256(msg)
@@ -95,119 +187,39 @@ func verifyECDSARaw(pub *ecdsa.PublicKey, msg []byte, sig []byte) bool {
 	r := new(big.Int).SetBytes(sig[:32])
 	s := new(big.Int).SetBytes(sig[32:])
 
-	return ecdsa.Verify(pub, h[:], r, s)
+	if !ecdsa.Verify(pub, h[:], r, s) {
+		return errors.New("ECDSA signature verification failed")
+	}
+
+	return nil
 }
 
-// parseSignatureInput parses a Signature-Input header like:
-//
-//	install=("@method" "@target-uri" "approov-token");alg="ecdsa-p256-sha256";created=...;expires=...
-//
-// and returns the components + canonical inner-list string.
-func parseSignatureInput(headerValue, label string) (*SigParams, error) {
-	// Signature-Input is a structured *dictionary*.
-	prefix := label + "="
-	idx := strings.Index(headerValue, prefix)
-	if idx < 0 {
-		return nil, fmt.Errorf("label %q not found in Signature-Input", label)
-	}
-
-	inner := strings.TrimSpace(headerValue[idx+len(prefix):])
-	if inner == "" {
-		return nil, fmt.Errorf("empty inner-list for %q", label)
-	}
-
-	// inner is now: ("@method" "approov-token");alg="..."
-	// Grab the bit between '(' and ')' to get the component tokens.
-	start := strings.Index(inner, "(")
-	end := strings.Index(inner, ")")
-	if start < 0 || end <= start {
-		return nil, fmt.Errorf("malformed inner-list in Signature-Input")
-	}
-
-	inside := inner[start+1 : end] // e.g. `"@method" "approov-token"`
-
-	// Split on whitespace and strip quotes to get the component names.
-	fields := strings.Fields(inside)
-	comps := make([]string, 0, len(fields))
-	for _, f := range fields {
-		f = strings.TrimSpace(f)
-		f = strings.Trim(f, "\"")
-		if f != "" {
-			comps = append(comps, f)
-		}
-	}
-	if len(comps) == 0 {
-		return nil, fmt.Errorf("no components found in Signature-Input")
-	}
-
-	return &SigParams{
-		Components: comps,
-		InnerRaw:   inner, // use the header substring verbatim for @signature-params
-	}, nil
-}
-
-// parseSignatureHeader extracts the raw signature bytes from
-//
-//	Signature: install=:<b64-sig>:
-//
-// for the given label.
-func parseSignatureHeader(headerValue, label string) ([]byte, error) {
-	// Example expected: 'install=:BASE64:'
-	// You can search for `label + =:` prefix and the next ':'.
-	prefix := label + "=:"
-	idx := strings.Index(headerValue, prefix)
-	if idx < 0 {
-		return nil, fmt.Errorf("label %q not found in Signature header", label)
-	}
-	rest := headerValue[idx+len(prefix):]
-	end := strings.Index(rest, ":")
-	if end < 0 {
-		return nil, fmt.Errorf("malformed Signature header")
-	}
-	b64 := rest[:end]
-
-	sig, err := base64.StdEncoding.DecodeString(b64)
+// VerifyMessageSignature is called after the Approov token has been checked,
+// passing the ipk claim (base64 DER public key).
+func VerifyMessageSignature(r *http.Request, ipk string) error {
+	sp, err := parseSignatureInputHeader(r.Header.Get("Signature-Input"))
 	if err != nil {
-		return nil, fmt.Errorf("decode signature base64: %w", err)
-	}
-	return sig, nil
-}
-
-// buildCanonicalMessage rebuilds the exact signature base string.
-// This MUST match what your Lua `http-message-sign` + bash tests generate.
-// For now this is a skeleton; fill it in using your test script examples.
-func buildCanonicalMessage(r *http.Request, sp *SigParams) ([]byte, error) {
-	var sb strings.Builder
-
-	// Build each covered component line in order
-	for _, comp := range sp.Components {
-		switch comp {
-		case "@method":
-			sb.WriteString("\"@method\": " + r.Method + "\n")
-
-		case "@target-uri":
-			// Must match the bash script: e.g. http://0.0.0.0:8111/token?param1=value1&param2=value2
-			target := "http://" + r.Host + r.URL.RequestURI()
-			sb.WriteString("\"@target-uri\": " + target + "\n")
-
-		case "approov-token":
-			token := r.Header.Get("Approov-Token")
-			if token == "" {
-				token = r.Header.Get("approov-token") // in case of lowercase
-			}
-			sb.WriteString("\"approov-token\": " + token + "\n")
-
-		case "content-digest":
-			cd := r.Header.Get("Content-Digest")
-			sb.WriteString("\"content-digest\": " + cd + "\n")
-
-		default:
-			return nil, fmt.Errorf("unsupported signature component %q", comp)
-		}
+		return fmt.Errorf("parse Signature-Input: %w", err)
 	}
 
-	// IMPORTANT: final line with newline, to match the bash script / Lua version
-	sb.WriteString("\"@signature-params\": " + sp.InnerRaw + "\n")
+	canonical, err := buildCanonicalMessage(r, sp)
+	if err != nil {
+		return fmt.Errorf("build canonical message: %w", err)
+	}
 
-	return []byte(sb.String()), nil
+	sig, err := extractSignatureBytes(r.Header.Get("Signature"))
+	if err != nil {
+		return fmt.Errorf("extract Signature: %w", err)
+	}
+
+	pub, err := parsePublicKeyFromIPK(ipk)
+	if err != nil {
+		return fmt.Errorf("parse ipk: %w", err)
+	}
+
+	if err := verifyECDSARaw(pub, canonical, sig); err != nil {
+		return err
+	}
+
+	return nil
 }

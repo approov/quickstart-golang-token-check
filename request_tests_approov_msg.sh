@@ -80,7 +80,7 @@ run_test_status() {
       return 1
   fi
 }
-LOGFILE=./openresty-server/logs/"request_tests_approov_msg_$(date +'%m-%d_%H-%M').log"
+LOGFILE=./config/logs/"request_tests_approov_msg_$(date +'%m-%d_%H-%M').log"
 mkdir -p "$(dirname "$LOGFILE")" # ensure logs directory exists
 : > "$LOGFILE"
 echo "Tests completed - see $LOGFILE for details"
