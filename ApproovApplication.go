@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -274,7 +273,7 @@ func verifyApproovToken(rawToken string, secret []byte, now time.Time) (map[stri
 
 	expected := hmacSHA256(secret, parts[0]+"."+parts[1])
 	if !hmac.Equal(signature, expected) {
-		 return nil, errors.New("token signature mismatch")
+		return nil, errors.New("token signature mismatch")
 	}
 
 	payloadBytes, err := decodeBase64URL(parts[1])
@@ -363,31 +362,11 @@ func validateExpiration(claims map[string]any, now time.Time) error {
 }
 
 func parseNumericClaim(value any) (int64, error) {
-	switch v := value.(type) {
-	case json.Number:
-		return v.Int64()
-	case float64:
-		return int64(v), nil
-	case float32:
-		return int64(v), nil
-	case int64:
-		return v, nil
-	case int:
-		return int64(v), nil
-	case int32:
-		return int64(v), nil
-	case uint64:
-		if v > uint64(mathMaxInt64) {
-			return 0, errors.New("value out of range")
-		}
-		return int64(v), nil
-	case uint32:
-		return int64(v), nil
-	case string:
-		return strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-	default:
-		return 0, errors.New("unsupported numeric type")
+	n, ok := value.(json.Number)
+	if !ok {
+		return 0, errors.New("exp must be a JSON number")
 	}
+	return n.Int64()
 }
 
 func hmacSHA256(secret []byte, message string) []byte {
@@ -497,5 +476,3 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 		log.Printf("Failed to write response: %v", err)
 	}
 }
-
-const mathMaxInt64 = int64(^uint64(0) >> 1)

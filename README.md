@@ -1,4 +1,4 @@
-# Approov Backend Quickstart - Go
+# Approov Backend Quickstart - Golang
 
 This project provides a server-side example of Approov token verification for a protected backend API. It exposes a simple API that verifies Approov tokens before granting access to protected endpoints and demonstrates how the endpoints behave under the current Approov configuration:
 
@@ -7,11 +7,14 @@ This project provides a server-side example of Approov token verification for a 
  - `/token-binding` - requires a valid Approov token which is bound to a header value.
  - `/token-double-binding` - requires a valid Approov token which is bound to two header values.
 
-<!-- Generic version:   -->
-In this example, Approov protection is provided by [`{{DECORATOR_FUNCTION_NAME}}`]({{DECORATOR_LINK}}). The level of protection is configured per endpoint via the decorator parameters, as shown in [`{{ENDPOINT_CONFIG_NAME}}`]({{ENDPOINT_EXAMPLE_LINK}}).
+In this example, Approov token check is implemented in `ApproovApplication.go`. The responsibilities break down as follows:
 
-<!-- Language specific version:  
-In this example, Approov protection is provided by [ApproovAuthenticationProvider.java](https://github.com/KMilej/quickstart-java-spring-token-check/blob/c26a41a262c5db6e57f0eeec83b6db699b70bfc4/src/main/java/com/criticalblue/approov/jwt/authentication/ApproovAuthenticationProvider.java#L15-L43). This is chained into Spring's HttpSecurity web builder in [WebSecurityConfig.java](https://github.com/KMilej/quickstart-java-spring-token-check/blob/c26a41a262c5db6e57f0eeec83b6db699b70bfc4/src/main/java/com/criticalblue/approov/jwt/WebSecurityConfig.java#L47-L82). -->
+1. **JWT Approov Token validation (signature + expiry)** is implemented in [verifyApproovToken](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L243-L294). It verifies the HS256 signature and rejects tokens that are missing or past `exp`.
+2. **Token binding (pay + hash)** is handled by [verifyApproovTokenBinding](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L296-L314). It computes `base64url(sha256(binding_value))` and compares it to the `pay` claim (with a standard base64 fallback for older tokens).
+3. **Middleware enforcement** is done by [approovMiddleware](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L201-L241). Requests without a valid token or binding are rejected with `401 Unauthorized`.
+4. **Binding value selection (what gets hashed)** is in [bindingValueForRequest](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L316-L331). It uses the headers configured in `protectedRoutes` (currently `Authorization` for single binding, or `Authorization` + `Content-Digest` for double binding).
+5. **Protected route requirements** are defined in [protectedRoutes](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L39-L43).
+6. **Protected routes are registered** in [registerRoutes](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L110-L122).
 
 ## Approov Token Verification Flow
 
@@ -233,7 +236,7 @@ curl -X GET http://localhost:8080/approov-state       # check current state
 * Build Tool: {{BUILD_TOOL}} {{BUILD_TOOL_VERSION}}
 ```
 
-If you encounter any problems while following this guide, or have any other concerns, please let us know by opening an issue [here](https://github.com/approov/quickstart-java-spring-token-check/issues) and we will be happy to assist you.
+If you encounter any problems while following this guide, or have any other concerns, please let us know by opening an issue [here](https://github.com/approov/quickstart-golang-token-check/issues) and we will be happy to assist you.
 
 ## Useful Links
 
