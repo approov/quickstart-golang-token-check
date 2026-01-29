@@ -231,9 +231,8 @@ curl -X GET http://localhost:8080/approov-state       # check current state
 
 **Environments where the quickstart was tested:**
 ```text
-* Runtime: {{RUNTIME_VERSION}}
-* Framework: {{LANGUAGE}} {{FRAMEWORK}}
-* Build Tool: {{BUILD_TOOL}} {{BUILD_TOOL_VERSION}}
+* Runtime: Go 1.25.6 (darwin/arm64)
+* Build Tool: Go toolchain 1.25.6
 ```
 
 If you encounter any problems while following this guide, or have any other concerns, please let us know by opening an issue [here](https://github.com/approov/quickstart-golang-token-check/issues) and we will be happy to assist you.
