@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -29,6 +30,8 @@ const (
 	approovHeader = "Approov-Token"
 	authHeader    = "Authorization"
 	digestHeader  = "Content-Digest"
+
+	approovSecretPlaceholder = "approov_base64url_secret_here"
 )
 
 type protectedRoute struct {
@@ -71,6 +74,13 @@ type infoResponse struct {
 	ContentDigestHeader bool   `json:"contentDigestHeaderPresent,omitempty"`
 }
 
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status          int
+	summary         string
+	requiredHeaders []string
+}
+
 func main() {
 	if err := loadEnvFile(".env"); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -94,7 +104,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              net.JoinHostPort(host, port),
-		Handler:           mux,
+		Handler:           loggingMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -198,6 +208,120 @@ func statePayload() infoResponse {
 	}
 }
 
+func (lrw *loggingResponseWriter) WriteHeader(status int) {
+	lrw.status = status
+	lrw.ResponseWriter.WriteHeader(status)
+}
+
+func (lrw *loggingResponseWriter) Write(data []byte) (int, error) {
+	if lrw.status == 0 {
+		lrw.status = http.StatusOK
+	}
+	count, err := lrw.ResponseWriter.Write(data)
+	return count, err
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lrw := &loggingResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(lrw, r)
+
+		status := lrw.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if status != http.StatusOK && status != http.StatusUnauthorized {
+			return
+		}
+
+		summary := lrw.summary
+		if summary == "" {
+			if status == http.StatusUnauthorized {
+				summary = "unauthorized"
+			} else {
+				summary = "ok"
+			}
+		}
+
+		requiredHeaders := lrw.requiredHeaders
+		if requiredHeaders == nil {
+			requiredHeaders = []string{}
+		}
+
+		log.Printf(
+			"http.request.completed summary=%q method=%q path=%q status=%d ip=%q port=%d approovEnabled=%t tokenBindingEnabled=%t required_headers=%s",
+			summary,
+			r.Method,
+			r.URL.Path,
+			status,
+			requestClientIP(r),
+			requestServerPort(r),
+			approovEnabled.Load(),
+			tokenBindingEnabled.Load(),
+			formatHeaderList(requiredHeaders),
+		)
+	})
+}
+
+func setLogSummary(w http.ResponseWriter, summary string) {
+	if summary == "" {
+		return
+	}
+	if lrw, ok := w.(*loggingResponseWriter); ok {
+		lrw.summary = summary
+	}
+}
+
+func setLogRequiredHeaders(w http.ResponseWriter, headers []string) {
+	if lrw, ok := w.(*loggingResponseWriter); ok {
+		lrw.requiredHeaders = append([]string(nil), headers...)
+	}
+}
+
+func requiredHeadersForRoute(route protectedRoute) []string {
+	headers := []string{approovHeader}
+	if tokenBindingEnabled.Load() && len(route.BindingHeaders) > 0 {
+		headers = append(headers, route.BindingHeaders...)
+	}
+	return headers
+}
+
+func requestClientIP(r *http.Request) string {
+	remote := strings.TrimSpace(r.RemoteAddr)
+	if remote == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(remote)
+	if err == nil && host != "" {
+		return host
+	}
+	return remote
+}
+
+func requestServerPort(r *http.Request) int {
+	hostPort := strings.TrimSpace(r.Host)
+	if hostPort != "" {
+		_, port, err := net.SplitHostPort(hostPort)
+		if err == nil {
+			if value, err := strconv.Atoi(port); err == nil {
+				return value
+			}
+		}
+	}
+	if value, err := strconv.Atoi(envOrDefault(envHTTPPort, defaultHTTPPort)); err == nil {
+		return value
+	}
+	return 0
+}
+
+func formatHeaderList(headers []string) string {
+	payload, err := json.Marshal(headers)
+	if err != nil {
+		return "[]"
+	}
+	return string(payload)
+}
+
 func approovMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		route, ok := protectedRouteIndex[r.URL.Path]
@@ -207,19 +331,23 @@ func approovMiddleware(next http.Handler) http.Handler {
 		}
 
 		if !approovEnabled.Load() {
+			setLogSummary(w, "approov_disabled")
 			next.ServeHTTP(w, r)
 			return
 		}
 
+		setLogRequiredHeaders(w, requiredHeadersForRoute(route))
+
 		rawToken, err := extractSingleHeaderValue(r.Header, approovHeader)
 		if err != nil {
+			setLogSummary(w, "approov_failed:missing_approov_token")
 			writeUnauthorized(w, err)
 			return
 		}
 
 		claims, err := verifyApproovToken(rawToken, approovSecret, time.Now().UTC())
 		if err != nil {
-			// log.Printf("Approov token verification failed: %v", err)
+			setLogSummary(w, "approov_failed:token_verification_failed")
 			writeUnauthorized(w, err)
 			return
 		}
@@ -227,15 +355,18 @@ func approovMiddleware(next http.Handler) http.Handler {
 		if len(route.BindingHeaders) > 0 && tokenBindingEnabled.Load() {
 			bindingValue, err := bindingValueForRequest(route, r)
 			if err != nil {
+				setLogSummary(w, "approov_failed:missing_binding_header")
 				writeUnauthorized(w, err)
 				return
 			}
 			if err := verifyApproovTokenBinding(claims, bindingValue); err != nil {
+				setLogSummary(w, "approov_failed:binding_mismatch")
 				writeUnauthorized(w, err)
 				return
 			}
 		}
 
+		setLogSummary(w, "approov_ok")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -299,14 +430,9 @@ func verifyApproovTokenBinding(claims map[string]any, bindingValue string) error
 		return errors.New("token binding missing pay claim")
 	}
 
-	computed := hashBase64URL(bindingValue)
-	pay = strings.TrimSpace(pay)
-	if computed == pay {
-		return nil
-	}
-
-	// Compatibility fallback for tokens that still use standard base64.
-	if hashBase64Std(bindingValue) == pay {
+	computed := hashBase64Std(bindingValue)
+	expected := strings.TrimSpace(pay)
+	if hmac.Equal([]byte(computed), []byte(expected)) {
 		return nil
 	}
 
@@ -375,11 +501,6 @@ func hmacSHA256(secret []byte, message string) []byte {
 	return h.Sum(nil)
 }
 
-func hashBase64URL(value string) string {
-	hash := sha256.Sum256([]byte(value))
-	return base64.RawURLEncoding.EncodeToString(hash[:])
-}
-
 func hashBase64Std(value string) string {
 	hash := sha256.Sum256([]byte(value))
 	return base64.StdEncoding.EncodeToString(hash[:])
@@ -420,10 +541,16 @@ func envOrDefault(name, fallback string) string {
 func loadApproovSecret() ([]byte, error) {
 	secret := strings.TrimSpace(os.Getenv(envApproovSecret))
 	if secret == "" {
+		log.Println("Required secret is not set")
+		return nil, fmt.Errorf("%s environment variable is not set", envApproovSecret)
+	}
+	if secret == approovSecretPlaceholder {
+		log.Println("Required secret is not set")
 		return nil, fmt.Errorf("%s environment variable is not set", envApproovSecret)
 	}
 	decoded, err := decodeBase64URL(secret)
 	if err != nil {
+		log.Println("Required secret is invalid")
 		return nil, fmt.Errorf("%s must be base64url encoded: %w", envApproovSecret, err)
 	}
 	return decoded, nil
