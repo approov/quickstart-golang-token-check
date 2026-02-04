@@ -27,9 +27,9 @@ const (
 	envHTTPPort      = "HTTP_PORT"
 	envHost          = "SERVER_HOSTNAME"
 
-	approovHeader = "Approov-Token"
-	authHeader    = "Authorization"
-	digestHeader  = "Content-Digest"
+	approovHeader   = "Approov-Token"
+	authHeader      = "Authorization"
+	sessionIdHeader = "SessionId"
 
 	approovSecretPlaceholder = "approov_base64url_secret_here"
 )
@@ -42,7 +42,7 @@ type protectedRoute struct {
 var protectedRoutes = []protectedRoute{
 	{Path: "/token-check"},
 	{Path: "/token-binding", BindingHeaders: []string{authHeader}},
-	{Path: "/token-double-binding", BindingHeaders: []string{authHeader, digestHeader}},
+	{Path: "/token-double-binding", BindingHeaders: []string{authHeader, sessionIdHeader}},
 }
 
 var protectedRouteIndex = func() map[string]protectedRoute {
@@ -71,7 +71,7 @@ type infoResponse struct {
 	TokenBindingEnabled bool   `json:"tokenBindingEnabled"`
 	Details             string `json:"details,omitempty"`
 	AuthorizationHeader bool   `json:"authorizationHeaderPresent,omitempty"`
-	ContentDigestHeader bool   `json:"contentDigestHeaderPresent,omitempty"`
+	SessionIdHeader     bool   `json:"sessionIdHeaderPresent,omitempty"`
 }
 
 type loggingResponseWriter struct {
@@ -197,7 +197,7 @@ func tokenDoubleBindingHandler(w http.ResponseWriter, r *http.Request) {
 	payload := statePayload()
 	payload.Details = "Protected endpoint '/token-double-binding'; dual token binding enforced."
 	payload.AuthorizationHeader = hasText(strings.TrimSpace(r.Header.Get(authHeader)))
-	payload.ContentDigestHeader = hasText(strings.TrimSpace(r.Header.Get(digestHeader)))
+	payload.SessionIdHeader = hasText(strings.TrimSpace(r.Header.Get(sessionIdHeader)))
 	writeJSON(w, http.StatusOK, payload)
 }
 
