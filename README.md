@@ -9,12 +9,17 @@ This project provides a server-side example of Approov token verification for a 
 
 In this example, Approov token check is implemented in `ApproovApplication.go`. The responsibilities break down as follows:
 
-1. **JWT Approov Token validation (signature + expiry)** is implemented in [verifyApproovToken](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L374-L425). It verifies the HS256 signature and rejects tokens that are missing or past `exp`.
-2. **Token binding (pay + hash)** is handled by [verifyApproovTokenBinding](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L427-L440). It computes `base64(sha256(binding_value))` (standard base64) and compares it to the `pay` claim.
-3. **Middleware enforcement** is done by [approovMiddleware](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L325-L372). Requests without a valid token or binding are rejected with `401 Unauthorized`.
-4. **Binding value selection (what gets hashed)** is in [bindingValueForRequest](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L442-L457). It uses the headers configured in `protectedRoutes` (currently `Authorization` for single binding, or `Authorization` + `SessionId` for double binding).
+1. **JWT Approov Token validation (signature + expiry)** is implemented in [verifyApproovToken](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L399-L450). It verifies the HS256 signature and rejects tokens that are missing or past `exp`.
+
+2. **Token binding (pay + hash)** is handled by [verifyApproovTokenBinding](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L452-L465). It computes `base64(sha256(binding_value))` (standard base64) and compares it to the `pay` claim.
+
+3. **Middleware enforcement** is done by [approovMiddleware](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L356-L397). It validates the Approov token and token binding, and returns typed errors on failure. Those errors are centrally mapped to `401 Unauthorized` by [asHTTPHandler](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L148-L154) and [writeHTTPError](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L621-L629).
+
+4. **Binding value selection (what gets hashed)** is in [bindingValueForRequest](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L467-L482). It uses the headers configured in `protectedRoutes` (currently `Authorization` for single binding, or `Authorization` + `SessionId` for double binding).
+
 5. **Protected route requirements** are defined in [protectedRoutes](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L42-L46).
-6. **Protected routes are registered** in [registerRoutes](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L120-L132).
+
+6. **Protected routes are registered** in [registerRoutes](https://github.com/approov/quickstart-golang-token-check/blob/refactor/golang-quickstart/ApproovApplication.go#L134-L146).
 
 ## Approov Token Verification Flow
 

@@ -1,0 +1,23 @@
+# VCS and editor metadata
+.git
+.gitignore
+.dockerignore
+.DS_Store
+.idea/
+.local/
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Local test artifacts
+.config/
+*.log
+
+# Build/test outputs
+bin/
+dist/
+out/
+coverage.out
+*.test

@@ -66,12 +66,26 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+type appHandler func(http.ResponseWriter, *http.Request) error
+
 type infoResponse struct {
 	ApproovEnabled      bool   `json:"approovEnabled"`
 	TokenBindingEnabled bool   `json:"tokenBindingEnabled"`
 	Details             string `json:"details,omitempty"`
 	AuthorizationHeader bool   `json:"authorizationHeaderPresent,omitempty"`
 	SessionIdHeader     bool   `json:"sessionIdHeaderPresent,omitempty"`
+}
+
+type httpError struct {
+	Status int
+	Err    error
+}
+
+func (he *httpError) Error() string {
+	if he == nil || he.Err == nil {
+		return ""
+	}
+	return he.Err.Error()
 }
 
 type loggingResponseWriter struct {
@@ -118,87 +132,104 @@ func main() {
 }
 
 func registerRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/", requireMethod(http.MethodGet, homeHandler))
-	mux.HandleFunc("/approov-state", requireMethod(http.MethodGet, approovStateHandler))
-	mux.HandleFunc("/approov/enable", requireMethod(http.MethodPost, enableApproovHandler))
-	mux.HandleFunc("/approov/disable", requireMethod(http.MethodPost, disableApproovHandler))
-	mux.HandleFunc("/token-binding/enable", requireMethod(http.MethodPost, enableTokenBindingHandler))
-	mux.HandleFunc("/token-binding/disable", requireMethod(http.MethodPost, disableTokenBindingHandler))
-	mux.HandleFunc("/unprotected", requireMethod(http.MethodGet, unprotectedHandler))
+	mux.Handle("/", asHTTPHandler(requireMethod(http.MethodGet, homeHandler)))
+	mux.Handle("/approov-state", asHTTPHandler(requireMethod(http.MethodGet, approovStateHandler)))
+	mux.Handle("/approov/enable", asHTTPHandler(requireMethod(http.MethodPost, enableApproovHandler)))
+	mux.Handle("/approov/disable", asHTTPHandler(requireMethod(http.MethodPost, disableApproovHandler)))
+	mux.Handle("/token-binding/enable", asHTTPHandler(requireMethod(http.MethodPost, enableTokenBindingHandler)))
+	mux.Handle("/token-binding/disable", asHTTPHandler(requireMethod(http.MethodPost, disableTokenBindingHandler)))
+	mux.Handle("/unprotected", asHTTPHandler(requireMethod(http.MethodGet, unprotectedHandler)))
 
-	mux.Handle("/token-check", approovMiddleware(http.HandlerFunc(requireMethod(http.MethodGet, tokenCheckHandler))))
-	mux.Handle("/token-binding", approovMiddleware(http.HandlerFunc(requireMethod(http.MethodGet, tokenBindingHandler))))
-	mux.Handle("/token-double-binding", approovMiddleware(http.HandlerFunc(requireMethod(http.MethodGet, tokenDoubleBindingHandler))))
+	mux.Handle("/token-check", asHTTPHandler(requireMethod(http.MethodGet, approovMiddleware(tokenCheckHandler))))
+	mux.Handle("/token-binding", asHTTPHandler(requireMethod(http.MethodGet, approovMiddleware(tokenBindingHandler))))
+	mux.Handle("/token-double-binding", asHTTPHandler(requireMethod(http.MethodGet, approovMiddleware(tokenDoubleBindingHandler))))
 }
 
-func requireMethod(method string, handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func asHTTPHandler(handler appHandler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := handler(w, r); err != nil {
+			writeHTTPError(w, err)
+		}
+	})
+}
+
+func requireMethod(method string, handler appHandler) appHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
 		if r.Method != method {
 			w.Header().Set("Allow", method)
-			writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method %s not allowed", r.Method))
-			return
+			return statusError(http.StatusMethodNotAllowed, fmt.Errorf("method %s not allowed", r.Method))
 		}
-		handler(w, r)
+		return handler(w, r)
 	}
 }
 
-func homeHandler(w http.ResponseWriter, r *http.Request) {
+func homeHandler(w http.ResponseWriter, r *http.Request) error {
 	payload := statePayload()
 	payload.Details = fmt.Sprintf("Approov demo API is running on port %s.", envOrDefault(envHTTPPort, defaultHTTPPort))
 	writeJSON(w, http.StatusOK, payload)
+	return nil
 }
 
-func approovStateHandler(w http.ResponseWriter, r *http.Request) {
+func approovStateHandler(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, statePayload())
+	return nil
 }
 
-func enableApproovHandler(w http.ResponseWriter, r *http.Request) {
+func enableApproovHandler(w http.ResponseWriter, r *http.Request) error {
 	approovEnabled.Store(true)
 	tokenBindingEnabled.Store(true)
 	writeJSON(w, http.StatusOK, statePayload())
+	return nil
 }
 
-func disableApproovHandler(w http.ResponseWriter, r *http.Request) {
+func disableApproovHandler(w http.ResponseWriter, r *http.Request) error {
 	approovEnabled.Store(false)
 	tokenBindingEnabled.Store(false)
 	writeJSON(w, http.StatusOK, statePayload())
+	return nil
 }
 
-func enableTokenBindingHandler(w http.ResponseWriter, r *http.Request) {
+func enableTokenBindingHandler(w http.ResponseWriter, r *http.Request) error {
 	tokenBindingEnabled.Store(true)
 	writeJSON(w, http.StatusOK, statePayload())
+	return nil
 }
 
-func disableTokenBindingHandler(w http.ResponseWriter, r *http.Request) {
+func disableTokenBindingHandler(w http.ResponseWriter, r *http.Request) error {
 	tokenBindingEnabled.Store(false)
 	writeJSON(w, http.StatusOK, statePayload())
+	return nil
 }
 
-func unprotectedHandler(w http.ResponseWriter, r *http.Request) {
+func unprotectedHandler(w http.ResponseWriter, r *http.Request) error {
 	payload := statePayload()
 	payload.Details = "Unprotected endpoint '/unprotected'; no Approov checks performed."
 	writeJSON(w, http.StatusOK, payload)
+	return nil
 }
 
-func tokenCheckHandler(w http.ResponseWriter, r *http.Request) {
+func tokenCheckHandler(w http.ResponseWriter, r *http.Request) error {
 	payload := statePayload()
 	payload.Details = "Protected endpoint '/token-check'; Approov token verified."
 	writeJSON(w, http.StatusOK, payload)
+	return nil
 }
 
-func tokenBindingHandler(w http.ResponseWriter, r *http.Request) {
+func tokenBindingHandler(w http.ResponseWriter, r *http.Request) error {
 	payload := statePayload()
 	payload.Details = "Protected endpoint '/token-binding'; Approov token binding enforced."
 	payload.AuthorizationHeader = hasText(strings.TrimSpace(r.Header.Get(authHeader)))
 	writeJSON(w, http.StatusOK, payload)
+	return nil
 }
 
-func tokenDoubleBindingHandler(w http.ResponseWriter, r *http.Request) {
+func tokenDoubleBindingHandler(w http.ResponseWriter, r *http.Request) error {
 	payload := statePayload()
 	payload.Details = "Protected endpoint '/token-double-binding'; dual token binding enforced."
 	payload.AuthorizationHeader = hasText(strings.TrimSpace(r.Header.Get(authHeader)))
 	payload.SessionIdHeader = hasText(strings.TrimSpace(r.Header.Get(sessionIdHeader)))
 	writeJSON(w, http.StatusOK, payload)
+	return nil
 }
 
 func statePayload() infoResponse {
@@ -322,18 +353,16 @@ func formatHeaderList(headers []string) string {
 	return string(payload)
 }
 
-func approovMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func approovMiddleware(next appHandler) appHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
 		route, ok := protectedRouteIndex[r.URL.Path]
 		if !ok {
-			next.ServeHTTP(w, r)
-			return
+			return next(w, r)
 		}
 
 		if !approovEnabled.Load() {
 			setLogSummary(w, "approov_disabled")
-			next.ServeHTTP(w, r)
-			return
+			return next(w, r)
 		}
 
 		setLogRequiredHeaders(w, requiredHeadersForRoute(route))
@@ -341,34 +370,30 @@ func approovMiddleware(next http.Handler) http.Handler {
 		rawToken, err := extractSingleHeaderValue(r.Header, approovHeader)
 		if err != nil {
 			setLogSummary(w, "approov_failed:missing_approov_token")
-			writeUnauthorized(w, err)
-			return
+			return statusError(http.StatusUnauthorized, err)
 		}
 
 		claims, err := verifyApproovToken(rawToken, approovSecret, time.Now().UTC())
 		if err != nil {
 			setLogSummary(w, "approov_failed:token_verification_failed")
-			writeUnauthorized(w, err)
-			return
+			return statusError(http.StatusUnauthorized, err)
 		}
 
 		if len(route.BindingHeaders) > 0 && tokenBindingEnabled.Load() {
 			bindingValue, err := bindingValueForRequest(route, r)
 			if err != nil {
 				setLogSummary(w, "approov_failed:missing_binding_header")
-				writeUnauthorized(w, err)
-				return
+				return statusError(http.StatusUnauthorized, err)
 			}
 			if err := verifyApproovTokenBinding(claims, bindingValue); err != nil {
 				setLogSummary(w, "approov_failed:binding_mismatch")
-				writeUnauthorized(w, err)
-				return
+				return statusError(http.StatusUnauthorized, err)
 			}
 		}
 
 		setLogSummary(w, "approov_ok")
-		next.ServeHTTP(w, r)
-	})
+		return next(w, r)
+	}
 }
 
 func verifyApproovToken(rawToken string, secret []byte, now time.Time) (map[string]any, error) {
@@ -586,8 +611,21 @@ func loadEnvFile(path string) error {
 	return scanner.Err()
 }
 
-func writeUnauthorized(w http.ResponseWriter, err error) {
-	writeError(w, http.StatusUnauthorized, err)
+func statusError(status int, err error) error {
+	if err == nil {
+		err = errors.New(http.StatusText(status))
+	}
+	return &httpError{Status: status, Err: err}
+}
+
+func writeHTTPError(w http.ResponseWriter, err error) {
+	var he *httpError
+	if errors.As(err, &he) {
+		writeError(w, he.Status, he.Err)
+		return
+	}
+	log.Printf("Unhandled handler error: %v", err)
+	writeError(w, http.StatusInternalServerError, errors.New("internal server error"))
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
@@ -595,6 +633,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	encoder := json.NewEncoder(w)
